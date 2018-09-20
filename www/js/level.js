@@ -37,14 +37,18 @@ function areaTypeName(id) {
 // Area[] areas: The areas of the level.
 class Level {
 	
-	constructor (data) {
-		if (data) {
-			let j = JSON.parse(data);
+	constructor (j/*data*/) {
+		if (j) {
+			//let j = JSON.parse(data);
 
 			this.name = j.n;
 			this.style = j.s;
 
 			this.areas = j.a.map(x => new Area(this, x));
+
+			this.start_x = j.X;
+			this.start_y = j.Y;
+			this.start_a = j.A;
 		} else {
 			this.name = 'Level';
 			this.style = LevelStyles.SMB;
@@ -60,6 +64,10 @@ class Level {
 
 		this.input = {};
 		this.prev_input = {};
+	}
+
+	objectify() {
+		return {n:this.name,s:this.style,a:this.areas.map(x => x.objectify()),X:this.start_x,Y:this.start_y,A:this.start_a};
 	}
 
 	get current_area() {
@@ -117,68 +125,13 @@ class Area {
 		}
 	}
 
+	objectify() {
+		return {t:this.type,o:this.objects.map(x => x.objectify()).filter(x=>!!x)};
+	}
+
 	get gravity() {
 		return this.type === AreaTypes.MOON ? 0.004 : 0.024;
 	}
-
-	/*
-	registerEdge(edge) {
-		const xb = fd(edge.x, 16);
-		const yb = fd(edge.y, 16);
-
-		if (!(this.edges[xb] instanceof Array)) this.edges[xb] = [];
-
-		if (!(this.edges[xb][yb] instanceof Array)) this.edges[xb][yb] = [];
-
-		this.edges[xb][yb].push(edge);
-
-		return edge;
-	}
-
-	getEdges(x, y) {
-		const xb = fd(x, 16);
-		const yb = fd(y, 16);
-		
-		const ofsrange = range(-1, 2);
-
-		let edges = [];
-
-		for (const xo of ofsrange) {
-			for (const yo of ofsrange) {
-				const nearx = this.edges[xb+xo]
-				if (!nearx) break;
-				const near = nearx[yb+yo];
-				if (!near) continue;
-				edges.push(...near);
-			}
-		}
-
-		return edges;
-	}
-
-	moveEdge(edge, x, y) {
-		const xb = fd(edge.x, 16);
-		const yb = fd(edge.y, 16);
-		const nxb = fd(x, 16);
-		const nyb = fd(y, 16);
-
-		if (xb === nxb && yb === nyb) {
-			edge.x = x;
-			edge.y = y;
-		} else {
-			const i = this.edges[xb][yb].indexOf(edge);
-
-			if (i === -1) {
-				throw new Error('Edge improperly registered');
-			}
-
-			this.edges[xb][yb].splice(i, 1);
-			edge.x = x;
-			edge.y = y;
-			this.registerEdge(edge);
-		}
-	}
-	*/
 
 	addObject(type, x, y) {
 		this.objects.push(new type(this, x, y));
@@ -201,63 +154,6 @@ class Area {
 
 		return objs;
 	}
-
-	collide(dr, x, y, w, h) {
-		let closest = null;
-
-		for (const edge of this.edges) {
-			let vert = (edge.side === EdgeSides.LEFT || edge.side === EdgeSides.RIGHT);
-
-			if (edge.side === dr) {
-				if(rectCollide(x,y,w,h , edge.x,edge.y,vert?edge.dx:edge.len,vert?edge.len:edge.dy , vert,!vert)) return edge; //TODO: don't
-			}
-		}
-
-		return closest;
-	}
-
-	collide2(dr, obj) {
-		let closest = null, closest_dist = Infinity;
-
-		if (dr === EdgeSides.LEFT && obj.dx < 0) return null;
-		if (dr === EdgeSides.RIGHT && obj.dx > 0) return null;
-		if (dr === EdgeSides.TOP && obj.dy < 0) return null;
-		if (dr === EdgeSides.BOTTOM && obj.dy > 0) return null;
-
-		for (const edge of this.getEdges(obj.x, obj.y)) {
-			const x = obj.x, y = obj.y, dx = obj.dx, dy = obj.dy, cw = obj.colWidth, ch = obj.colHeight;
-
-			if (edge.side === dr) {
-				if (dr === EdgeSides.LEFT) {
-					if ((!closest || edge.x < closest.x) && trvCollide(x + cw, y, dx, ch, dy, edge.x, edge.y, edge.len)) {
-						closest = edge;
-						closest_dist = x + cw - edge.x;
-					}
-				}
-				if (dr === EdgeSides.RIGHT) {
-					if ((!closest || edge.x > closest.x) && trvCollide(x + dx, y + dy, -dx, ch, -dy, edge.x, edge.y, edge.len)) {
-						closest = edge;
-						closest_dist = x - edge.x;
-					}
-				}
-				if (dr === EdgeSides.TOP) {
-					if ((!closest || edge.y < closest.y) && trhCollide(x, y + ch, cw, dy, dx, edge.x, edge.y, edge.len)) {
-						closest = edge;
-						closest_dist = y + ch - edge.y;
-					}
-				}
-				if (dr === EdgeSides.BOTTOM) {
-					if ((!closest || edge.y > closest.y) && trhCollide(x + dx, y + dy, cw, -dy, -dx, edge.x, edge.y, edge.len)) {
-						closest = edge;
-						closest_dist = y - edge.y
-					}
-				}
-			}
-		}
-
-		return [closest, closest_dist];
-	}
-
 
 	collideEdge(a, min_strength) {
 		
@@ -490,22 +386,6 @@ class Edge {
 	}
 }
 
-/*
-function staticSolidEdge(side, x, y, len, fric) {
-	return {
-		side: EdgeSides[side.toUpperCase()],
-		x: x,
-		y: y,
-		len: len,
-		dx: 0,
-		dy: 0,
-		type: EdgeTypes.SOLID,
-		strength: 100,
-		friction: isNaN(parseFloat(fric)) ? 1 : +fric
-	};
-}
-*/
-
 // The abstract base class for all objects.
 // Area area: The area the object is in.
 
@@ -526,6 +406,13 @@ class LevelObject {
 
 	remove() {
 		this.area.objects.splice(this.area.objects.indexOf(this), 1);
+	}
+
+	objectify() {
+		const err = `Unable to save object of type ${this.constructor.name} at x: ${this.x}, y: ${this.y}. Skipping.`;
+		console.warn(err);
+		alert(err);
+		return null;
 	}
 
 	setup() {}
@@ -633,6 +520,31 @@ class BrickBlock extends LevelObject {
 		return levelStyleName(level_style)+'.'+areaTypeName(area_type) + '.brick';
 	}
 
+}
+
+// A cloud that is solid on one side, usually the top.
+class CloudBlock extends LevelObject {
+	
+	setup() {
+		new Edge(EdgeSides.TOP, this.x, this.y, 1).register(this.area);
+	}
+
+	render(camx, camy) {
+		let rx = this.x - camx,
+		    ry = this.y - camy;
+
+		let px = blkSize() * rx,
+		    py = blkSize() * ry;
+
+		drawTexture(levelStyleName(this.level.style)+'.'+areaTypeName(this.area.type) + '.cloudblock', px, py, blkSize(), blkSize());
+	}
+
+	get width() { return 1; }
+	get height() { return 1; }
+
+	static getMenuTexture(level_style, area_type) {
+		return levelStyleName(level_style)+'.'+areaTypeName(area_type) + '.cloudblock';
+	}
 }
 
 // An object that follows physics. The base of most enemies.
