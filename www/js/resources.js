@@ -212,6 +212,16 @@ function createResourceLoader() {
 		}
 	};
 
+	rs['SMB.GROUND.cloudblock'] = {
+		src: 'SMB.GROUND.tiles',
+		crop: {
+			x: 0,
+			y: 48,
+			width: 16,
+			height: 16
+		}
+	};
+
 	rs['SMB.GROUND.goomba.stand'] = {
 		src: 'SMB.GROUND.tiles',
 		crop: {

@@ -1,6 +1,6 @@
 var TilePalette = Object.freeze({
 	platforms: [
-		GroundTile, SolidBlock, BrickBlock
+		GroundTile, SolidBlock, BrickBlock, CloudBlock
 	],
 	enemies: [
 		Goomba
