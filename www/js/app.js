@@ -17,6 +17,9 @@ let menuChange = -999999999;
 
 var debug_info = true;
 
+// The currently active Gamepad object, or null.
+var gamepad = null;
+
 // The canvas and its rendering context
 var cvs, ctx;
 
@@ -51,6 +54,7 @@ function getSelectedTool() {
 }
 
 var current_level;
+var level_object_copy;
 
 // The object that stores resources.
 // Type: ResourceLoader
@@ -63,10 +67,6 @@ let scroll;
 // Where the camera is panned, in tiles.
 // Types: float, float
 let camx, camy;
-
-// The levels stored locally on this device.
-// Type: Level[]
-var myLevels = localStorage.getItem('levelData') || [];
 
 var tickSpeedChecker = new SpeedChecker(), FPSChecker = new SpeedChecker();
 
@@ -91,7 +91,7 @@ function loadMenu(newMenu) {
 		camx = 0;
 		camy = 1 - screenHeight / blkSize();
 
-		tile_select_open = 1;
+		tile_select_open = 0;
 	}
 
 	if (menu === MenuStates.PLAYLEVEL) {
@@ -185,12 +185,23 @@ function renderFrame() {
 		let levelsPerLine = Math.max(1, Math.floor(screenWidth * 0.75 / 300));
 		let levelLineStartX =  (Math.floor(screenWidth * 0.75) % 300) / 2 + screenWidth / 8;
 
+		const myLevels = JSON.parse(localStorage.getItem('levels.ls') || '[]');
+
 		for (let i = 0; i < 1 + myLevels.length; i++) {
 			let dx = levelLineStartX + 300 * (i % levelsPerLine),
 			    dy = Math.floor(i / levelsPerLine) * 300 + 192 - scroll;
 
 			if (drawButton(null, dx + 150, dy + 150, 272, 272, null, '#666', null, 16, 8, 8, '#660')) {
-				if (i === myLevels.length) loadMenu(MenuStates.CREATELEVEL);
+				if (i === myLevels.length) {
+					loadMenu(MenuStates.CREATELEVEL);
+				}
+
+				else {
+					const cld = localStorage.getItem(`level.${ myLevels[i].id }.data`);
+					const ld = LZString.decompressFromUTF16(cld);
+					current_level = new Level(JSON.parse(ld));
+					loadMenu(MenuStates.EDITLEVEL);
+				}
 			}
 
 			if (i === myLevels.length) {
@@ -323,9 +334,17 @@ function renderFrame() {
 			}
 		}
 
-		if (isDown('p')) loadMenu(MenuStates.PLAYLEVEL);
+		if (isDown('p')) {
+			level_object_copy = current_level.objectify();
+			loadMenu(MenuStates.PLAYLEVEL);
+		}
 	} else if (menu === MenuStates.PLAYLEVEL) {
 		current_level.render(camx, camy, false);
+
+		if (isDown('e')) {
+			current_level = new Level(level_object_copy);
+			loadMenu(MenuStates.EDITLEVEL);
+		}
 	}
 
 	if (debug_info) {
@@ -346,6 +365,9 @@ window.mmrel = (rx, ry) => {
 };
 
 addEventListener('resize', handleSizeChange);
+
+addEventListener('gamepadconnected', evt => {gamepad = evt.gamepad;});
+addEventListener('gamepaddisconnected', evt => {if (gamepad.index === evt.gamepad.index) gamepad = null;});
 
 // Aaaaannnnddddd... ACTION!
 addEventListener('load', () => {

@@ -1,5 +1,7 @@
 'use strict';
 
+let objectTypes = {};
+
 // The enum of styles a level can be in.
 const LevelStyles = Object.freeze({
 	SMB: 1,
@@ -42,6 +44,7 @@ class Level {
 			//let j = JSON.parse(data);
 
 			this.name = j.n;
+			this.id = j.i;
 			this.style = j.s;
 
 			this.areas = j.a.map(x => new Area(this, x));
@@ -51,6 +54,7 @@ class Level {
 			this.start_a = j.A;
 		} else {
 			this.name = 'Level';
+			this.id = (Date.now().toString(16).padStart(16, '0') + ((Math.random() * 2147483648)|0).toString(16).padStart(8, '0')).toUpperCase();
 			this.style = LevelStyles.SMB;
 
 			this.areas = [new Area(this)];
@@ -67,7 +71,29 @@ class Level {
 	}
 
 	objectify() {
-		return {n:this.name,s:this.style,a:this.areas.map(x => x.objectify()),X:this.start_x,Y:this.start_y,A:this.start_a};
+		return {n:this.name,i:this.id,s:this.style,a:this.areas.map(x => x.objectify()),X:this.start_x,Y:this.start_y,A:this.start_a};
+	}
+
+	save() {
+		const data = JSON.stringify(this.objectify());
+		const cdata = LZString.compressToUTF16(data);
+		localStorage.setItem(`level.${ this.id }.data`, cdata);
+
+		let llist = JSON.parse(localStorage.getItem('levels.ls') || '[]');
+		
+		for (const level of llist) {
+			if (level.id === this.id) {
+				if (level.name !== this.name) {
+					level.name = this.name;
+					localStorage.setItem('levels.ls', JSON.stringify(llist));
+				}
+
+				return;
+			}
+		}
+
+		llist.push({id: this.id, name: this.name});
+		localStorage.setItem('levels.ls', JSON.stringify(llist));
 	}
 
 	get current_area() {
@@ -117,7 +143,7 @@ class Area {
 		if (j) {
 			this.type = j.t;
 
-			this.objects = j.o.map(CreateObject);
+			this.objects = j.o.map(o => CreateObject(this, o));
 		} else {
 			this.type = AreaTypes.GROUND;
 
@@ -300,7 +326,7 @@ class Edge {
 		this.y = y;
 		this.len = len;
 		this.friction = isNaN(parseFloat(fric)) ? 1 : +fric;
-		this.strength = isNaN(parseInt(strength)) ? 100 : parseInt(strength);
+		this.strength = isNaN(parseInt(strength)) ? 1000000 : parseInt(strength);
 		this.type = EdgeTypes.SOLID;
 
 		this.dx = this.dy = 0;
@@ -393,8 +419,10 @@ class LevelObject {
 	
 	constructor(area, x, y) {
 		this.area = area;
-		this.x = x;
-		this.y = y;
+		if ('number' === typeof y) {
+			this.x = x;
+			this.y = y;
+		} else this.load_from(x);
 	}
 
 	get level() {
@@ -442,6 +470,10 @@ class GroundTile extends LevelObject {
 		}
 	}
 
+	objectify() {
+		return {t: this.constructor.name, p: [this.x, this.y]};
+	}
+
 	get width() { return 1; }
 	get height() { return 1; }
 
@@ -451,6 +483,7 @@ class GroundTile extends LevelObject {
 		}
 	}
 }
+objectTypes.GroundTile = GroundTile;
 
 // A solid block.
 class SolidBlock extends LevelObject {
@@ -471,6 +504,10 @@ class SolidBlock extends LevelObject {
 
 		drawTexture(levelStyleName(this.level.style)+'.'+areaTypeName(this.area.type) + '.block', px, py, blkSize(), blkSize());
 	}
+	
+	objectify() {
+		return {t: this.constructor.name, p: [this.x, this.y]};
+	}
 
 	get width() { return 1; }
 	get height() { return 1; }
@@ -479,6 +516,7 @@ class SolidBlock extends LevelObject {
 		return levelStyleName(level_style)+'.'+areaTypeName(area_type) + '.block';
 	}
 }
+objectTypes.SolidBlock = SolidBlock;
 
 // A brick block. Can contain items. Turns into a coin when a P-switch is pressed.
 class BrickBlock extends LevelObject {
@@ -513,6 +551,10 @@ class BrickBlock extends LevelObject {
 		}
 	}
 
+	objectify() {
+		return {t: this.constructor.name, p: [this.x, this.y]};
+	}
+
 	get width() { return 1; }
 	get height() { return 1; }
 
@@ -521,6 +563,7 @@ class BrickBlock extends LevelObject {
 	}
 
 }
+objectTypes.BrickBlock = BrickBlock;
 
 // A cloud that is solid on one side, usually the top.
 class CloudBlock extends LevelObject {
@@ -539,6 +582,10 @@ class CloudBlock extends LevelObject {
 		drawTexture(levelStyleName(this.level.style)+'.'+areaTypeName(this.area.type) + '.cloudblock', px, py, blkSize(), blkSize());
 	}
 
+	objectify() {
+		return {t: this.constructor.name, p: [this.x, this.y]};
+	}
+
 	get width() { return 1; }
 	get height() { return 1; }
 
@@ -546,6 +593,7 @@ class CloudBlock extends LevelObject {
 		return levelStyleName(level_style)+'.'+areaTypeName(area_type) + '.cloudblock';
 	}
 }
+objectTypes.CloudBlock = CloudBlock;
 
 // An object that follows physics. The base of most enemies.
 class PhysicsObject extends LevelObject {
@@ -750,64 +798,8 @@ class PhysicsObject extends LevelObject {
 		this.right[f]();
 	}
 
-	oldtick() {
-		this.colleft = this.colright = this.coltop = this.colbottom = false;
-		this.dy = Math.min(this.dy + this.area.gravity, this.terminal_velocity);
-
-		for (let i = 0; i < 256; i++) {
-			let closest_edge = null, closest_edge_dist = Infinity;
-
-			for (let s = 4; s > 0; s--) {
-				const res = this.area.collide2(s, this);
-				if (!res) continue;
-				const edge = res[0];
-				if (!edge) continue;
-				const dist = Math.abs(res[1] / (s === EdgeSides.LEFT || s === EdgeSides.RIGHT ? this.dx : this.dy));
-				if (dist < closest_edge_dist) {
-					closest_edge_dist = dist;
-					closest_edge = edge;
-				}
-			}
-
-			if (!closest_edge) break;
-
-			if (closest_edge.side === EdgeSides.LEFT) {
-				this.x = closest_edge.x - this.colWidth;
-				this.dx = closest_edge.dx;
-				this.dy -= this.crawlright;
-				this.dy *= 1 - closest_edge.friction * this.fricright;
-				this.dy += this.crawlright;
-				this.colright = true;
-			} else if (closest_edge.side === EdgeSides.RIGHT) {
-				this.x = closest_edge.x;
-				this.dx = closest_edge.dx;
-				this.dy -= this.crawlleft;
-				this.dy *= 1 - closest_edge.friction * this.fricleft;
-				this.dy += this.crawlleft;
-				this.colleft = true;
-			} else if (closest_edge.side === EdgeSides.TOP) {
-				this.y = closest_edge.y - this.colHeight;
-				this.dy = closest_edge.dy;
-				this.dx -= this.crawlbottom;
-				this.dx *= 1 - closest_edge.friction * this.fricbottom;
-				this.dx += this.crawlbottom;
-				this.colbottom = true;
-			} else if (closest_edge.side === EdgeSides.BOTTOM) {
-				this.y = closest_edge.y;
-				this.dy = closest_edge.dy;
-				this.dx -= this.crawltop;
-				this.dx *= 1 - closest_edge.friction * this.frictop;
-				this.dx += this.crawltop;
-				this.coltop = true;
-			}
-
-			if (i === 255) throw new Error('i=255');
-		}
-
-		if (!(this.colleft || this.colright)) this.x += this.dx;
-		if (!(this.coltop || this.colbottom)) this.y += this.dy;
-
-	}
+	get width() {return this.colWidth;}
+	get height() {return this.colHeight;}
 }
 
 // The most basic enemy.
@@ -841,10 +833,15 @@ class Goomba extends PhysicsObject {
 		if ((this.crawlbottom < 0 && this.colleft) || (this.crawlbottom > 0 && this.colright)) this.crawlbottom *= -1;
 	}
 
+	objectify() {
+		return {t: this.constructor.name, p: [this.x, this.y]};
+	}
+
 	static getMenuTexture(level_style, area_type) {
 		return levelStyleName(level_style)+'.'+areaTypeName(area_type) + '.goomba.stand';
 	}
 }
+objectTypes.Goomba = Goomba;
 
 // It's a me, 
 class Mario extends PhysicsObject {
@@ -915,5 +912,13 @@ class Mario extends PhysicsObject {
 		if (this.jumpTimer) this.dy = -0.369;
 
 		super.tick();
+	}
+}
+
+function CreateObject(area, d) {
+	if ('p' in d) {
+		return new objectTypes[d.t](area, d.p[0], d.p[1]);
+	} else {
+		return new objectTypes[d.t](area, d.d);
 	}
 }
